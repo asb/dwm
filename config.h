@@ -102,6 +102,7 @@ static Key keys[] = {
 	TAGKEYS(                        XK_8,                      7)
 	TAGKEYS(                        XK_9,                      8)
 	{ MODKEY|ShiftMask,             XK_q,      quit,           {0} },
+	{ MODKEY|ShiftMask,             XK_r,      reexec,         {0} },
 	{ MODKEY|ShiftMask,             XK_l,      spawn,          {.v = lockcmd } },
 	{ 0,                            XF86XK_MonBrightnessDown, spawn, { .v = backlightdown } },
 	{ 0,                            XF86XK_MonBrightnessUp,   spawn, { .v = backlightup } },
