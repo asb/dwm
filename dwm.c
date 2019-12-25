@@ -29,6 +29,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/auxv.h>
+#include <sys/timerfd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <X11/cursorfont.h>
@@ -1275,9 +1276,7 @@ propertynotify(XEvent *e)
 	Window trans;
 	XPropertyEvent *ev = &e->xproperty;
 
-	if ((ev->window == root) && (ev->atom == XA_WM_NAME))
-		updatestatus();
-	else if (ev->state == PropertyDelete)
+	if (ev->state == PropertyDelete)
 		return; /* ignore */
 	else if ((c = wintoclient(ev->window))) {
 		switch(ev->atom) {
@@ -1439,12 +1438,45 @@ restack(Monitor *m)
 void
 run(void)
 {
-	XEvent ev;
 	/* main event loop */
+	/* Read events of the X event queue and from a repeating 1 second timer
+	 * (used for updating the clock).
+	 */
 	XSync(dpy, False);
-	while (running && !XNextEvent(dpy, &ev))
-		if (handler[ev.type])
-			handler[ev.type](&ev); /* call handler */
+	int dpyfd = ConnectionNumber(dpy);
+	int tfd = timerfd_create(CLOCK_MONOTONIC, 0);
+	struct itimerspec new_value;
+	new_value.it_value.tv_sec=1;
+	new_value.it_value.tv_nsec=0;
+	new_value.it_interval.tv_sec=1;
+	new_value.it_interval.tv_nsec=0;
+	if (timerfd_settime(tfd, 0, &new_value, NULL))
+		perror("Failed to set timer");
+	int maxfd = tfd;
+	if (dpyfd > maxfd)
+		maxfd = dpyfd;
+	fd_set rfds;
+	while (running) {
+		FD_ZERO(&rfds);
+		FD_SET(dpyfd, &rfds);
+		FD_SET(tfd, &rfds);
+		int n = select(maxfd+1, &rfds, NULL, NULL, NULL);
+		if (n > 0) {
+			if (FD_ISSET(dpyfd, &rfds)) {
+				while(XPending(dpy)) {
+					XEvent ev;
+					XNextEvent(dpy, &ev);
+					if(handler[ev.type])
+						(handler[ev.type])(&ev); /* call handler */
+				}
+			}
+			if (FD_ISSET(tfd, &rfds)) {
+				uint64_t res;
+				read(tfd, &res, sizeof(res));
+				updatestatus();
+			}
+		}
+	}
 }
 
 void
@@ -2078,9 +2110,10 @@ updatesizehints(Client *c)
 void
 updatestatus(void)
 {
-	if (!gettextprop(root, XA_WM_NAME, stext, sizeof(stext)))
-		strcpy(stext, "dwm-"VERSION);
-	drawbar(selmon);
+	time_t t = time(NULL);
+	if (strftime(stext, sizeof stext - 1, "%c", localtime(&t))) {
+		drawbar(selmon);
+	}
 }
 
 void
